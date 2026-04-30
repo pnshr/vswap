@@ -10,8 +10,6 @@
 
 ## Demo
 
-Four-minute walkthrough — preflight, dry-run, sub-second swap, tower-safe
-rollback, plus the web wizard cutaway:
 [**youtu.be/iCxeUHRHsgw**](https://youtu.be/iCxeUHRHsgw).
 
 ## Why
