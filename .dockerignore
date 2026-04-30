@@ -1,0 +1,47 @@
+# Root .dockerignore for the vswap monorepo.
+#
+# All Dockerfiles in the repo (`packages/agent/Dockerfile`,
+# `scripts/test-env/mock-validator/Dockerfile`, and the
+# real-validator pair under `scripts/test-env/real-validator/`) use the
+# repo root as their build context.
+#
+# Without this file, `docker build` hands the daemon a tarball of
+# everything in the working tree — including each package's
+# `node_modules/` populated by host-side `pnpm install`. With pnpm 9 on
+# Windows or macOS those nested `node_modules` directories are full of
+# absolute symlinks (e.g. `packages/protocol/node_modules/typescript -> /e/...`).
+# Baking those into a Linux container leaves dangling symlinks and
+# `tsc` cannot be resolved during the in-container build.
+
+# Dependency trees — every container image runs its own `pnpm install`.
+**/node_modules
+
+# Build outputs — re-generated inside each Dockerfile's builder stage.
+**/dist
+**/build
+**/.next
+**/.vercel
+
+# Local-only state; never useful in an image.
+.git
+.github
+.idea
+.vscode
+.DS_Store
+
+# E2E fixtures and scratch state are bind-mounted at runtime, not baked.
+scripts/test-env/fixtures
+scripts/test-env/state
+
+# pnpm + npm caches (shouldn't be in the tree, but be defensive).
+.pnpm-store
+.npm
+
+# Local environment overrides that occasionally leak into the tree.
+.env
+.env.*
+!.env.example
+
+# OS junk.
+Thumbs.db
+desktop.ini

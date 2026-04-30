@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-typecheck:
+    name: lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Workspace packages resolve each other via their published
+      # dist/ type entry points, so downstream packages can only be
+      # type-checked after @vswap/protocol has been built.
+      - run: pnpm -F @vswap/protocol build
+      - run: pnpm -F @vswap/agent build
+      - run: pnpm -F @vswap/cli build
+      - run: pnpm -r run lint
+      - run: pnpm -r run typecheck
+
+  unit-tests:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Downstream packages need the upstream dist/ to resolve types.
+      - run: pnpm -F @vswap/protocol build
+      - run: pnpm -F @vswap/agent build
+      - run: pnpm -F @vswap/cli build
+      # e2e has its own "test" script that spawns docker. Run only the
+      # non-e2e workspaces here.
+      - run: pnpm -F @vswap/protocol test
+      - run: pnpm -F @vswap/agent test
+      - run: pnpm -F @vswap/cli test
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            packages/*/dist/**
+          retention-days: 7
+
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Dependency vulnerabilities at high severity or above block PRs.
+      - run: pnpm audit --audit-level=high
+
+  e2e:
+    name: e2e (docker)
+    # Run on the nightly schedule or when a maintainer opts in by adding
+    # the `e2e` label. PR runs exit quickly if the label is absent to
+    # keep the dev loop fast.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'e2e')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r run build
+      - name: Boot test environment
+        run: bash scripts/test-env/up.sh
+      - name: Run e2e suite
+        run: pnpm -F @vswap/e2e test
+      - name: Collect agent logs on failure
+        if: always()
+        run: bash scripts/test-env/logs.sh > /tmp/vswap-e2e-logs.txt 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-logs
+          path: /tmp/vswap-e2e-logs.txt
+      - name: Teardown
+        if: always()
+        run: bash scripts/test-env/down.sh --all || true

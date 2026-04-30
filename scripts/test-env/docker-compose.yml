@@ -1,0 +1,173 @@
+# Docker Compose for @vswap/e2e. Four services + two shared volumes.
+#
+# Shape: each (validator + agent) pair shares a ledger volume so the
+# agent can read the tower file and talk to the validator's admin RPC
+# unix socket. mTLS is terminated at the agent; the mock validator
+# only speaks JSON-RPC over the unix socket plus a chaos HTTP endpoint
+# on 7999 (test-plane only, never exposed publicly).
+#
+# Ports exposed to the host:
+#   7872 → agent-a (https)
+#   7873 → agent-b (https)
+#   7999 → validator-a chaos HTTP
+#   7998 → validator-b chaos HTTP
+
+name: vswap-e2e
+
+services:
+  validator-a:
+    container_name: vswap-validator-a
+    build:
+      context: ./mock-validator
+    user: "0:0"
+    environment:
+      LEDGER_PATH: /var/ledger
+      INITIAL_KEYPAIR: /var/validator/staked.json
+      CHAOS_HTTP_PORT: "7999"
+    volumes:
+      - ledger-a:/var/ledger
+      - ./fixtures/validator-a:/var/validator:ro
+      # Shared tmpfs with agent-a. The agent writes ephemeral identity
+      # keypairs here before asking admin RPC to load them; in real
+      # Solana this is the same process, in our split containers we
+      # need an explicit shared mount.
+      - shm-a:/dev/shm/vswap
+    ports:
+      - "7999:7999"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "wget -qO- http://127.0.0.1:7999/state | grep -q currentIdentity",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 2s
+    networks:
+      - vswap-net
+
+  validator-b:
+    container_name: vswap-validator-b
+    build:
+      context: ./mock-validator
+    user: "0:0"
+    environment:
+      LEDGER_PATH: /var/ledger
+      INITIAL_KEYPAIR: /var/validator/staked.json
+      CHAOS_HTTP_PORT: "7998"
+    volumes:
+      - ledger-b:/var/ledger
+      - ./fixtures/validator-b:/var/validator:ro
+      - shm-b:/dev/shm/vswap
+    ports:
+      - "7998:7998"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "wget -qO- http://127.0.0.1:7998/state | grep -q currentIdentity",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 2s
+    networks:
+      - vswap-net
+
+  agent-a:
+    container_name: vswap-agent-a
+    hostname: agent-a
+    build:
+      context: ../..
+      dockerfile: packages/agent/Dockerfile
+    # Test env only — run as root so bind-mounted fixtures generated
+    # from the host (current user UID) are readable without shuffling
+    # permissions per run. Production images run as `vswap:10001`.
+    user: "0:0"
+    environment:
+      VSWAP_AGENT_CONFIG: /etc/vswap/agent.yaml
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    volumes:
+      - ledger-a:/var/ledger
+      - ./fixtures/agent-a:/etc/vswap:ro
+      - ./fixtures/validator-a:/var/validator
+      - ./mock-validator/fake-agave-validator.sh:/usr/local/bin/agave-validator:ro
+      - ./mock-validator/agent-healthcheck.mjs:/usr/local/lib/agent-healthcheck.mjs:ro
+      - agent-a-data:/var/lib/vswap
+      - shm-a:/dev/shm/vswap
+    ports:
+      - "7872:7872"
+    depends_on:
+      validator-a:
+        condition: service_healthy
+    healthcheck:
+      # mTLS requires a client cert; a plain wget would fail the TLS
+      # handshake. The healthcheck script mounts the agent's own cert
+      # (it is also valid as a client cert — extKeyUsage=both) to do a
+      # round-trip HTTPS GET against /health.
+      test:
+        [
+          "CMD",
+          "node",
+          "/usr/local/lib/agent-healthcheck.mjs",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
+    networks:
+      - vswap-net
+
+  agent-b:
+    container_name: vswap-agent-b
+    hostname: agent-b
+    build:
+      context: ../..
+      dockerfile: packages/agent/Dockerfile
+    user: "0:0"
+    environment:
+      VSWAP_AGENT_CONFIG: /etc/vswap/agent.yaml
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    volumes:
+      - ledger-b:/var/ledger
+      - ./fixtures/agent-b:/etc/vswap:ro
+      - ./fixtures/validator-b:/var/validator
+      - ./mock-validator/fake-agave-validator.sh:/usr/local/bin/agave-validator:ro
+      - ./mock-validator/agent-healthcheck.mjs:/usr/local/lib/agent-healthcheck.mjs:ro
+      - agent-b-data:/var/lib/vswap
+      - shm-b:/dev/shm/vswap
+    ports:
+      - "7873:7872"
+    depends_on:
+      validator-b:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "/usr/local/lib/agent-healthcheck.mjs",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
+    networks:
+      - vswap-net
+
+networks:
+  vswap-net:
+    name: vswap-e2e-net
+
+volumes:
+  ledger-a:
+  ledger-b:
+  agent-a-data:
+  agent-b-data:
+  shm-a:
+  shm-b:

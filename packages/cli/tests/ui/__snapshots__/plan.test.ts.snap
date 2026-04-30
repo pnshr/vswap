@@ -1,0 +1,41 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderPlan > renders a plan with full peer + tower context (snapshot) 1`] = `
+"Planned swap:
+  Source: node-a (pubkey 7kAbCd…cDeF, slot 250125012)
+  Target: node-b (pubkey 7kAbCd…cDeF, slot 250125011, lag 1 slot)
+  Tower: tower-1_9-7kAbCdEf.bin (slot 250124987, 3.0 KB)
+  Correlation ID: 1c1f7c8e-2222-4333-8444-555566667777
+
+  Steps:
+    1. Acquire swap locks on both agents
+    2. Source: set-identity to unstaked (pause voting)
+    3. Encrypt identity+tower, send to target via agent A → CLI → agent B
+    4. Target: decrypt in /dev/shm, set-identity with --require-tower
+    5. Target: add authorized voter
+    6. Wait for target to resume voting (timeout: 30s)
+    7. Scrub all transient buffers
+    8. Release locks
+
+  Expected swap window: ~1–3 seconds"
+`;
+
+exports[`renderPlan > renders a plan with no tower (target preflight failure) 1`] = `
+"Planned swap:
+  Source: node-a (pubkey 7kAbCd…cDeF, slot 100)
+  Target: node-b (pubkey 7kAbCd…cDeF, slot 100, in sync)
+  Tower: unknown (target preflight will refuse)
+  Correlation ID: 1c1f7c8e-2222-4333-8444-555566667777
+
+  Steps:
+    1. Acquire swap locks on both agents
+    2. Source: set-identity to unstaked (pause voting)
+    3. Encrypt identity+tower, send to target via agent A → CLI → agent B
+    4. Target: decrypt in /dev/shm, set-identity with --require-tower
+    5. Target: add authorized voter
+    6. Wait for target to resume voting (timeout: 30s)
+    7. Scrub all transient buffers
+    8. Release locks
+
+  Expected swap window: ~1–3 seconds"
+`;

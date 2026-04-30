@@ -1,0 +1,9 @@
+# Every generated fixture is ignored — they contain secret keys and
+# re-derive deterministically from `gen-fixtures.mjs`. The directory
+# itself is kept so bind mounts from docker-compose remain stable.
+fixtures/
+!fixtures/.gitkeep
+
+# `up.sh` writes a pid/state file here so tests can locate a running
+# environment without re-running compose detection logic.
+state/

@@ -1,0 +1,21 @@
+node_modules
+dist
+coverage
+.next
+*.tsbuildinfo
+.DS_Store
+*.log
+.env
+.env.*
+.turbo
+.vitest-cache
+.vercel
+
+# Secret material — never commit even when copied in for debugging.
+*.pem
+*.key
+*.crt
+id_*.json
+vswap-export.json
+.vswap/
+ledger/

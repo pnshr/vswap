@@ -1,0 +1,78 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      npm:
+        description: "Publish @vswap/protocol, @vswap/agent, @vswap/cli to npm"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      ghcr:
+        description: "Publish ghcr.io/pnshr/vswap-agent"
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  npm:
+    name: npm packages
+    if: ${{ github.event_name == 'push' || inputs.npm == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -F @vswap/protocol build
+      - run: pnpm -F @vswap/agent build
+      - run: pnpm -F @vswap/cli build
+      - run: pnpm -F @vswap/protocol publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: pnpm -F @vswap/agent publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: pnpm -F @vswap/cli publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  ghcr:
+    name: agent image
+    if: ${{ github.event_name == 'push' || inputs.ghcr == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r run build
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/agent/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/pnshr/vswap-agent:latest
+            ghcr.io/pnshr/vswap-agent:${{ github.sha }}

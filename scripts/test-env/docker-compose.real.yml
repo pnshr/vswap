@@ -1,0 +1,252 @@
+# Real-validator profile for @vswap/e2e.
+#
+# Topology mirrors the mock profile: two (validator + agent) pairs
+# share a ledger volume so the agent can talk to the validator's
+# admin.rpc unix socket and read tower files. The big differences:
+#
+#   - Each `validator-{a,b}` runs a real `solana-test-validator`
+#     (built from `real-validator/agave-image/`) instead of the Node
+#     mock.
+#   - Each side gets a sibling `ops-{a,b}` sidecar (built from
+#     `real-validator/ops-sidecar/`) that re-exposes the chaos /
+#     observation HTTP API the e2e scenarios rely on. The sidecar
+#     mounts the same ledger volume + admin.rpc socket the agent uses.
+#   - Default host-side ports for the sidecars and agents are shifted
+#     out of the Hyper-V reserved range (7981–8080 on Windows) by
+#     using the 17xxx prefix.
+#
+# Container-internal ports stay identical to the mock profile so the
+# agent containers reuse `packages/agent/Dockerfile` unchanged. The
+# fixtures and agent.yaml configs do not need to know which validator
+# implementation is on the other end of `admin.rpc`.
+
+name: vswap-e2e-real
+
+services:
+  validator-a:
+    container_name: vswap-validator-a
+    build:
+      context: ./real-validator/agave-image
+      args:
+        # Overrideable from the host shell so up-real.sh can target a
+        # newer Agave line without editing this file:
+        #   AGAVE_VERSION=v3.1.14 bash scripts/test-env/up-real.sh --reset
+        # Default stays on the v2.0.21 baseline that has the full
+        # real-profile e2e suite green; see docs/supported-versions.md.
+        AGAVE_VERSION: ${AGAVE_VERSION:-v2.0.21}
+    user: "0:0"
+    environment:
+      LEDGER_PATH: /var/ledger
+      RPC_HTTP_PORT: "8899"
+      RPC_WS_PORT: "8900"
+      FAUCET_PORT: "9900"
+      GOSSIP_PORT: "1024"
+      # solana-test-validator generates its own identity under
+      # <LEDGER>/validator-keypair.json. up-real.sh boots this
+      # container with RESET=true on the first run only (when the
+      # ledger volume is empty), then mirrors validator-keypair.json
+      # out to fixtures/validator-a/staked.json so the agent picks
+      # up the same identity. Successive boots reuse the existing
+      # ledger.
+      RESET: "${VSWAP_E2E_VALIDATOR_RESET:-false}"
+    volumes:
+      - ledger-a:/var/ledger
+      - ./fixtures/validator-a:/var/validator:ro
+      # Same shared tmpfs the agent writes ephemeral identity keypairs
+      # into before calling admin.rpc setIdentity.
+      - shm-a:/dev/shm/vswap
+    networks:
+      - vswap-net
+
+  ops-a:
+    container_name: vswap-ops-a
+    build:
+      context: ./real-validator/ops-sidecar
+    user: "0:0"
+    environment:
+      LEDGER_PATH: /var/ledger
+      INITIAL_KEYPAIR: /var/validator/staked.json
+      OPS_HTTP_PORT: "7999"
+      RPC_HTTP_URL: "http://validator-a:8899"
+      STATE_DIR: /var/lib/vswap-ops
+    volumes:
+      - ledger-a:/var/ledger
+      - ./fixtures/validator-a:/var/validator:ro
+      - ops-a-state:/var/lib/vswap-ops
+    ports:
+      - "17999:7999"
+    depends_on:
+      validator-a:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD", "wget", "-qO-", "http://127.0.0.1:7999/state"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks:
+      - vswap-net
+
+  validator-b:
+    container_name: vswap-validator-b
+    build:
+      context: ./real-validator/agave-image
+      args:
+        # See validator-a comment.
+        AGAVE_VERSION: ${AGAVE_VERSION:-v2.0.21}
+    user: "0:0"
+    environment:
+      LEDGER_PATH: /var/ledger
+      RPC_HTTP_PORT: "8899"
+      RPC_WS_PORT: "8900"
+      FAUCET_PORT: "9900"
+      GOSSIP_PORT: "1024"
+      # See validator-a comment.
+      RESET: "${VSWAP_E2E_VALIDATOR_RESET:-false}"
+    volumes:
+      - ledger-b:/var/ledger
+      - ./fixtures/validator-b:/var/validator:ro
+      - shm-b:/dev/shm/vswap
+    networks:
+      - vswap-net
+
+  ops-b:
+    container_name: vswap-ops-b
+    build:
+      context: ./real-validator/ops-sidecar
+    user: "0:0"
+    environment:
+      LEDGER_PATH: /var/ledger
+      INITIAL_KEYPAIR: /var/validator/staked.json
+      OPS_HTTP_PORT: "7998"
+      RPC_HTTP_URL: "http://validator-b:8899"
+      STATE_DIR: /var/lib/vswap-ops
+    volumes:
+      - ledger-b:/var/ledger
+      - ./fixtures/validator-b:/var/validator:ro
+      - ops-b-state:/var/lib/vswap-ops
+    ports:
+      - "17998:7998"
+    depends_on:
+      validator-b:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD", "wget", "-qO-", "http://127.0.0.1:7998/state"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks:
+      - vswap-net
+
+  agent-a:
+    container_name: vswap-agent-a
+    hostname: agent-a
+    build:
+      context: ../..
+      dockerfile: packages/agent/Dockerfile
+    # Test env only — see comment in docker-compose.yml for rationale.
+    user: "0:0"
+    environment:
+      VSWAP_AGENT_CONFIG: /etc/vswap/agent.yaml
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      # Reported by `agave-validator --version` inside the agent
+      # container (the compose env defaults to 2.0.21 because that
+      # matches the default AGAVE_VERSION above; pass
+      # AGAVE_REPORTED_VERSION=3.1.14 alongside AGAVE_VERSION=v3.1.14
+      # to keep them aligned). See scripts/test-env/real-validator/fake-agave-validator.sh.
+      AGAVE_REPORTED_VERSION: "${AGAVE_REPORTED_VERSION:-2.0.21}"
+    volumes:
+      - ledger-a:/var/ledger
+      - ./fixtures/agent-a:/etc/vswap:ro
+      - ./fixtures/validator-a:/var/validator
+      # The agent shells out to `agave-validator` only for --version
+      # and catchup (preflight, display-only). Real admin RPC mutations
+      # all go through the unix socket on the shared ledger volume, so
+      # we keep using a small wrapper script here — same arrangement
+      # as the mock profile.
+      - ./real-validator/fake-agave-validator.sh:/usr/local/bin/agave-validator:ro
+      - ./mock-validator/agent-healthcheck.mjs:/usr/local/lib/agent-healthcheck.mjs:ro
+      - agent-a-data:/var/lib/vswap
+      - shm-a:/dev/shm/vswap
+    ports:
+      - "17872:7872"
+    depends_on:
+      validator-a:
+        condition: service_healthy
+      ops-a:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "/usr/local/lib/agent-healthcheck.mjs",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    networks:
+      - vswap-net
+
+  agent-b:
+    container_name: vswap-agent-b
+    hostname: agent-b
+    build:
+      context: ../..
+      dockerfile: packages/agent/Dockerfile
+    user: "0:0"
+    environment:
+      VSWAP_AGENT_CONFIG: /etc/vswap/agent.yaml
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      # Reported by `agave-validator --version` inside the agent
+      # container (the compose env defaults to 2.0.21 because that
+      # matches the default AGAVE_VERSION above; pass
+      # AGAVE_REPORTED_VERSION=3.1.14 alongside AGAVE_VERSION=v3.1.14
+      # to keep them aligned). See scripts/test-env/real-validator/fake-agave-validator.sh.
+      AGAVE_REPORTED_VERSION: "${AGAVE_REPORTED_VERSION:-2.0.21}"
+    volumes:
+      - ledger-b:/var/ledger
+      - ./fixtures/agent-b:/etc/vswap:ro
+      - ./fixtures/validator-b:/var/validator
+      - ./real-validator/fake-agave-validator.sh:/usr/local/bin/agave-validator:ro
+      - ./mock-validator/agent-healthcheck.mjs:/usr/local/lib/agent-healthcheck.mjs:ro
+      - agent-b-data:/var/lib/vswap
+      - shm-b:/dev/shm/vswap
+    ports:
+      - "17873:7872"
+    depends_on:
+      validator-b:
+        condition: service_healthy
+      ops-b:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "/usr/local/lib/agent-healthcheck.mjs",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    networks:
+      - vswap-net
+
+networks:
+  vswap-net:
+    name: vswap-e2e-real-net
+
+volumes:
+  ledger-a:
+  ledger-b:
+  agent-a-data:
+  agent-b-data:
+  shm-a:
+  shm-b:
+  ops-a-state:
+  ops-b-state:

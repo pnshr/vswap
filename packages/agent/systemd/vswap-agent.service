@@ -1,0 +1,38 @@
+[Unit]
+Description=vswap agent — Solana validator identity hot-swap daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vswap
+Group=vswap
+Environment=NODE_ENV=production
+Environment=VSWAP_AGENT_CONFIG=/etc/vswap/agent.yaml
+ExecStart=/usr/bin/node /opt/vswap/dist/index.js
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/vswap /dev/shm/vswap
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

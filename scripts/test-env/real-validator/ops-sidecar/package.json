@@ -1,0 +1,14 @@
+{
+  "name": "vswap-real-ops-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chaos/observation HTTP plane for the real-validator e2e profile. Re-exposes the same API the mock validator implements, backed by the live agave-validator admin RPC + a shared ledger volume.",
+  "type": "module",
+  "main": "src/index.mjs",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

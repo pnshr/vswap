@@ -1,0 +1,61 @@
+{
+  "name": "@vswap/agent",
+  "version": "0.1.0",
+  "private": false,
+  "description": "vswap agent daemon (Agent-A + Agent-B roles) — HTTPS + WSS server for Solana validator identity hot-swap.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "vswap-agent": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "systemd"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.2.0",
+    "@vswap/protocol": "workspace:*",
+    "execa": "^9.5.1",
+    "fastify": "^5.8.5",
+    "pino": "^9.5.0",
+    "yaml": "^2.6.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "eslint": "^8.57.0",
+    "typescript": "5.5.4",
+    "vitest": "^1.6.0",
+    "ws": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

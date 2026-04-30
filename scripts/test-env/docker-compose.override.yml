@@ -1,0 +1,99 @@
+# Local override for Windows / NTFS hosts.
+#
+# Two adjustments compared to the base compose:
+#
+#   1. Host-side ports shifted out of the Hyper-V excluded ranges
+#      (7502-7601, 7681-7780, 7881-7980, 7981-8080). Container-internal
+#      ports stay unchanged. !override replaces the base ports list
+#      (otherwise Compose concatenates entries from multiple files).
+#
+#   2. NTFS bind-mounts cannot represent POSIX 0600, but the agent
+#      enforces `mode & 0o077 === 0` on every secret file at startup,
+#      so a default Windows bring-up fails with
+#      KeyfilePermissionsUnsafeError. The `fixtures-init` one-shot
+#      service copies fixtures into named volumes and chmods them once;
+#      agents and validators then mount those named volumes instead of
+#      the host bind-mounts.
+
+services:
+  fixtures-init:
+    image: alpine:3
+    volumes:
+      - ./fixtures/agent-a:/src/agent-a:ro
+      - ./fixtures/agent-b:/src/agent-b:ro
+      - ./fixtures/validator-a:/src/validator-a:ro
+      - ./fixtures/validator-b:/src/validator-b:ro
+      - vswap-conf-agent-a:/dst/agent-a
+      - vswap-conf-agent-b:/dst/agent-b
+      - vswap-val-a:/dst/validator-a
+      - vswap-val-b:/dst/validator-b
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        for n in agent-a agent-b validator-a validator-b; do
+          rm -rf /dst/$$n/*
+          cp -r /src/$$n/. /dst/$$n/
+        done
+        chmod 0644 /dst/agent-a/* /dst/agent-b/* 2>/dev/null || true
+        chmod 0600 /dst/agent-a/long-term.sk /dst/agent-a/server.key
+        chmod 0600 /dst/agent-b/long-term.sk /dst/agent-b/server.key
+        chmod 0644 /dst/validator-a/* /dst/validator-b/* 2>/dev/null || true
+        chmod 0600 /dst/validator-a/staked.json /dst/validator-a/unstaked.json /dst/validator-a/identity.json
+        chmod 0600 /dst/validator-b/staked.json /dst/validator-b/unstaked.json /dst/validator-b/identity.json
+        echo "fixtures provisioned with POSIX modes"
+    networks:
+      - vswap-net
+
+  validator-a:
+    ports: !override
+      - "17999:7999"
+    depends_on:
+      fixtures-init:
+        condition: service_completed_successfully
+    volumes: !override
+      - ledger-a:/var/ledger
+      - vswap-val-a:/var/validator:ro
+      - shm-a:/dev/shm/vswap
+
+  validator-b:
+    ports: !override
+      - "17998:7998"
+    depends_on:
+      fixtures-init:
+        condition: service_completed_successfully
+    volumes: !override
+      - ledger-b:/var/ledger
+      - vswap-val-b:/var/validator:ro
+      - shm-b:/dev/shm/vswap
+
+  agent-a:
+    ports: !override
+      - "17872:7872"
+    volumes: !override
+      - ledger-a:/var/ledger
+      - vswap-conf-agent-a:/etc/vswap:ro
+      - vswap-val-a:/var/validator
+      - ./mock-validator/fake-agave-validator.sh:/usr/local/bin/agave-validator:ro
+      - ./mock-validator/agent-healthcheck.mjs:/usr/local/lib/agent-healthcheck.mjs:ro
+      - agent-a-data:/var/lib/vswap
+      - shm-a:/dev/shm/vswap
+
+  agent-b:
+    ports: !override
+      - "17873:7872"
+    volumes: !override
+      - ledger-b:/var/ledger
+      - vswap-conf-agent-b:/etc/vswap:ro
+      - vswap-val-b:/var/validator
+      - ./mock-validator/fake-agave-validator.sh:/usr/local/bin/agave-validator:ro
+      - ./mock-validator/agent-healthcheck.mjs:/usr/local/lib/agent-healthcheck.mjs:ro
+      - agent-b-data:/var/lib/vswap
+      - shm-b:/dev/shm/vswap
+
+volumes:
+  vswap-conf-agent-a:
+  vswap-conf-agent-b:
+  vswap-val-a:
+  vswap-val-b:

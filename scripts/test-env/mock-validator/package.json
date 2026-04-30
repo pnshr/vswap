@@ -1,0 +1,12 @@
+{
+  "name": "vswap-mock-validator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mock Solana agave-validator admin RPC server used by @vswap/e2e. Implements just enough of the admin RPC to drive a hot-swap (setIdentity, addAuthorizedVoter, removeAllAuthorizedVoters, contactInfo, rpcAddress) with no consensus layer.",
+  "type": "module",
+  "main": "src/index.mjs",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

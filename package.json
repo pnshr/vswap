@@ -1,0 +1,17 @@
+{
+  "name": "vswap",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Solana validator identity hot-swap tool (monorepo root).",
+  "packageManager": "pnpm@9.15.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint"
+  },
+  "license": "MIT"
+}
